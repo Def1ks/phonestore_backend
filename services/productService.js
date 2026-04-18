@@ -307,3 +307,16 @@ exports.getVariantsByProductId = async (productId) => {
 
     return data || [];
 };
+
+/**
+ * Получить N самых дорогих товаров
+ */
+exports.getMostExpensive = async (limit = 3) => {
+    // Сначала получаем все товары (можно оптимизировать запрос)
+    const allProducts = await exports.getAll();
+    
+    // Сортируем по цене и берём топ
+    return allProducts
+        .sort((a, b) => b.price - a.price)
+        .slice(0, limit);
+};

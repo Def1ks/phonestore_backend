@@ -14,7 +14,8 @@ router.get('/clear-cache', (req, res) => {
 
 //Специфичные динамические роуты
 router.get('/variant/:id', productController.getByVariantId);  
-router.get('/:id/reviews', productController.getReviews);      
+router.get('/:id/reviews', productController.getReviews);    
+router.get('/hits', productController.getMostExpensive);  
 
 //Общий динамический роут 
 router.get('/:id', productController.getById);                 

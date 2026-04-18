@@ -74,3 +74,14 @@ exports.getReviews = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+exports.getMostExpensive = async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 3;
+        const products = await productService.getMostExpensive(limit);
+        res.json({ products, total: products.length });
+    } catch (error) {
+        console.error('Error in getMostExpensive:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
