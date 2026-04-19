@@ -5,6 +5,7 @@ const { protect } = require('../middleware/auth');
 
 router.use(protect); 
 
+router.delete('/', cartController.clearCart); 
 router.get('/', cartController.getCart);
 router.post('/', cartController.addToCart);
 router.post('/quantity', cartController.updateQuantity);

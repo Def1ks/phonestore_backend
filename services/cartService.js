@@ -151,3 +151,9 @@ exports.clearCartCache = (userId) => {
         console.log('[CART CACHE] All caches cleared');
     }
 };
+
+exports.clearCart = async (userId) => {
+    await supabase.from('cart').delete().eq('id_user', userId);
+    exports.clearCartCache(userId); // Очищаем кэш
+    return [];
+};

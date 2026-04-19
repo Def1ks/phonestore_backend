@@ -45,3 +45,13 @@ exports.removeItem = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
+
+exports.clearCart = async (req, res) => {
+    try {
+        await cartService.clearCart(req.user.id);
+        res.json({ success: true, message: 'Корзина очищена' });
+    } catch (error) {
+        console.error('Clear cart error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
