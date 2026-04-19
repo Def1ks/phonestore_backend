@@ -1,19 +1,141 @@
 // services/productService.js
 const supabase = require('../config/supabase');
 
-// ================= КЭШИРОВАНИЕ =================
+//  КЭШИРОВАНИЕ 
 let productsCache = null;
 let cacheTimestamp = null;
-const CACHE_TTL = 5 * 60 * 1000; // 5 минут
+const CACHE_TTL = 5 * 60 * 1000; 
 
 let variantCache = {};
-let reviewsCache = {}; // ← Новый кэш для отзывов
+let reviewsCache = {};
+let filterCache = null;
 
 function isCacheValid() {
     return productsCache && cacheTimestamp && (Date.now() - cacheTimestamp < CACHE_TTL);
 }
 
-// ================= СПИСОК ТОВАРОВ =================
+function getBadgeText(badgeType) {
+    const badges = { new: 'НОВИНКА', sale: 'СКИДКА', hit: 'ХИТ' };
+    return badges[badgeType] || null;
+}
+
+//  ФИЛЬТРАЦИЯ ТОВАРОВ 
+exports.getFilteredProducts = async ({
+    brand, ram, storage, color, minPrice, maxPrice, search,
+    page = 1, limit = 20, sortBy = 'price', sortOrder = 'desc'
+} = {}) => {
+    const offset = (Number(page) - 1) * Number(limit);
+    const safeLimit = Math.min(Number(limit), 100);
+
+    let query = supabase
+        .from('products_variants')
+        .select(`
+            id_variant, price, old_price, image_url, badge_type,
+            colors!inner(id_color, name),
+            product_ram!inner(id_ram, size_gb),
+            product_storage!inner(id_storage, size_gb),
+            products!inner(
+                id_product, name, description, specs,
+                brands!inner(id_brand, name)
+            )
+        `, { count: 'exact' });
+
+    // === ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ВАЛИДАЦИИ ===
+    const parseIds = (value) => {
+        if (!value) return [];
+        const arr = Array.isArray(value) ? value : [value];
+        return arr
+            .map(id => {
+                const num = Number(id);
+                return isNaN(num) || num <= 0 ? null : num;
+            })
+            .filter(id => id !== null);
+    };
+
+    // === ФИЛЬТРЫ С ПРОВЕРКОЙ НА NaN ===
+    
+    // Бренд
+    const brandIds = parseIds(brand);
+    if (brandIds.length > 0) {
+        query = query.in('products.brands.id_brand', brandIds);
+    }
+    
+    // RAM
+    const ramIds = parseIds(ram);
+    if (ramIds.length > 0) {
+        query = query.in('product_ram.id_ram', ramIds);
+    }
+    
+    // Storage
+    const storageIds = parseIds(storage);
+    if (storageIds.length > 0) {
+        query = query.in('product_storage.id_storage', storageIds);
+    }
+    
+    // Цвет
+    const colorIds = parseIds(color);
+    if (colorIds.length > 0) {
+        query = query.in('colors.id_color', colorIds);
+    }
+    
+    // Цена (проверка на валидность)
+    if (minPrice && !isNaN(Number(minPrice))) {
+        query = query.gte('price', Number(minPrice));
+    }
+    if (maxPrice && !isNaN(Number(maxPrice))) {
+        query = query.lte('price', Number(maxPrice));
+    }
+
+    // === СОРТИРОВКА ===
+    const validSortFields = ['price', 'name'];
+    const sortField = validSortFields.includes(sortBy) ? sortBy : 'price';
+    const ascending = sortOrder === 'asc';
+    
+    if (sortField === 'name') {
+        query = query.order('products.name', { ascending });
+    } else {
+        query = query.order('price', { ascending });
+    }
+
+    // === ПАГИНАЦИЯ ===
+    const { data, error, count } = await query.range(offset, offset + safeLimit - 1);
+
+    if (error) {
+        console.error('Supabase error:', error);
+        throw new Error(`DB Filter Error: ${error.message}`);
+    }
+
+    // === ФОРМАТИРОВАНИЕ ===
+    const formatted = (data || []).map(v => ({
+        id: v.id_variant,
+        productId: v.products.id_product,
+        name: v.products.name,
+        brand: `${v.products.brands?.name || 'Бренд'} · ${v.product_ram?.size_gb || 0}GB · ${v.product_storage?.size_gb || 0}GB`,
+        color: v.colors?.name || 'Не указан',
+        price: v.price,
+        oldPrice: v.old_price,
+        image: v.image_url,
+        badge: v.badge_type,
+        badgeText: getBadgeText(v.badge_type),
+        description: v.products.description,
+        specs: v.products.specs,
+        ram: v.product_ram?.size_gb,
+        storage: v.product_storage?.size_gb
+    }));
+
+    const total = count || 0;
+    const totalPages = Math.ceil(total / safeLimit);
+
+    return {
+        products: formatted,
+        total,
+        page: Number(page),
+        limit: safeLimit,
+        totalPages
+    };
+};
+
+//  СПИСОК ТОВАРОВ (старый метод) 
 exports.getAll = async () => {
     if (isCacheValid()) {
         return productsCache;
@@ -22,29 +144,28 @@ exports.getAll = async () => {
     const { data: products, error } = await supabase
         .from('products')
         .select(`
-      id_product,
-      name,
-      description,
-      specs,
-      brands!inner(id_brand, name),
-      products_variants(
-        id_variant,
-        price,
-        old_price,
-        image_url,
-        badge_type,
-        colors!inner(id_color, name),
-        product_ram!inner(id_ram, size_gb),
-        product_storage!inner(id_storage, size_gb)
-      )
-    `);
+            id_product,
+            name,
+            description,
+            specs,
+            brands!inner(id_brand, name),
+            products_variants(
+                id_variant,
+                price,
+                old_price,
+                image_url,
+                badge_type,
+                colors!inner(id_color, name),
+                product_ram!inner(id_ram, size_gb),
+                product_storage!inner(id_storage, size_gb)
+            )
+        `);
 
     if (error) throw new Error('Ошибка базы данных');
 
     const formattedProducts = [];
     products.forEach(product => {
         if (!product.products_variants || product.products_variants.length === 0) return;
-
         product.products_variants.forEach(variant => {
             formattedProducts.push({
                 id: variant.id_variant,
@@ -71,12 +192,7 @@ exports.getAll = async () => {
     return formattedProducts;
 };
 
-function getBadgeText(badgeType) {
-    const badges = { new: 'НОВИНКА', sale: 'СКИДКА', hit: 'ХИТ' };
-    return badges[badgeType] || null;
-}
-
-// ================= ОДИН ТОВАР ПО ID ПРОДУКТА =================
+//  ОДИН ТОВАР ПО ID ПРОДУКТА 
 exports.getById = async (productId) => {
     const { data, error } = await supabase
         .from('products')
@@ -113,12 +229,8 @@ exports.getById = async (productId) => {
     };
 };
 
-// ================= ОТЗЫВЫ С КЭШИРОВАНИЕМ =================
-/**
- * Получить отзывы для конкретного товара (с кэшированием)
- */
+//  ОТЗЫВЫ С КЭШИРОВАНИЕМ 
 exports.getReviewsByProductId = async (productId) => {
-    // 1. Проверяем кэш
     const cached = reviewsCache[productId];
     if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
         console.log(`[CACHE HIT] Reviews for product ${productId} loaded from cache`);
@@ -127,7 +239,6 @@ exports.getReviewsByProductId = async (productId) => {
 
     console.log(`[CACHE MISS] Reviews for product ${productId} fetching from DB`);
 
-    // 2. Запрос к БД
     const { data, error } = await supabase
         .from('reviews')
         .select(`
@@ -154,12 +265,10 @@ exports.getReviewsByProductId = async (productId) => {
                 { stars: 1, count: 0 }
             ]
         };
-        // Кэшируем и пустой результат, чтобы не спамить БД ошибками
         reviewsCache[productId] = { data: emptyResult, timestamp: Date.now() };
         return emptyResult;
     }
 
-    // 3. Форматируем под фронтенд
     const formattedReviews = (data || []).map(review => ({
         user: {
             first_name: review.users?.first_name || 'Аноним',
@@ -172,13 +281,11 @@ exports.getReviewsByProductId = async (productId) => {
         created_at: review.created_at
     }));
 
-    // 4. Считаем статистику
     const total = formattedReviews.length;
     const average = total > 0
         ? (formattedReviews.reduce((acc, r) => acc + r.rating, 0) / total).toFixed(1)
         : 0;
 
-    // 5. Распределение по звёздам
     const distribution = [5, 4, 3, 2, 1].map(stars => ({
         stars,
         count: formattedReviews.filter(r => r.rating === stars).length
@@ -191,7 +298,6 @@ exports.getReviewsByProductId = async (productId) => {
         distribution
     };
 
-    // 6. Сохраняем в кэш
     reviewsCache[productId] = {
         data: result,
         timestamp: Date.now()
@@ -200,7 +306,7 @@ exports.getReviewsByProductId = async (productId) => {
     return result;
 };
 
-// ================= ТОВАР ПО ID ВАРИАНТА =================
+//  ТОВАР ПО ID ВАРИАНТА 
 exports.getByIdVariant = async (variantId) => {
     const cachedItem = variantCache[variantId];
     if (cachedItem && (Date.now() - cachedItem.timestamp < CACHE_TTL)) {
@@ -213,23 +319,23 @@ exports.getByIdVariant = async (variantId) => {
     const { data: variant, error } = await supabase
         .from('products_variants')
         .select(`
-      id_variant,
-      price,
-      old_price,
-      image_url,
-      badge_type,
-      id_product,
-      colors!inner(id_color, name),
-      product_ram!inner(id_ram, size_gb),
-      product_storage!inner(id_storage, size_gb),
-      products!inner(
-        id_product,
-        name,
-        description,
-        specs,
-        brands(id_brand, name)
-      )
-    `)
+            id_variant,
+            price,
+            old_price,
+            image_url,
+            badge_type,
+            id_product,
+            colors!inner(id_color, name),
+            product_ram!inner(id_ram, size_gb),
+            product_storage!inner(id_storage, size_gb),
+            products!inner(
+                id_product,
+                name,
+                description,
+                specs,
+                brands(id_brand, name)
+            )
+        `)
         .eq('id_variant', variantId)
         .single();
 
@@ -241,8 +347,6 @@ exports.getByIdVariant = async (variantId) => {
 
     const product = variant.products;
     const brand = product.brands;
-
-    // Получаем отзывы (с кэшированием внутри функции)
     const reviews = await exports.getReviewsByProductId(product.id_product);
 
     const result = {
@@ -276,29 +380,72 @@ exports.getByIdVariant = async (variantId) => {
     return result;
 };
 
-// ================= ОЧИСТКА ВСЕХ КЭШЕЙ =================
+//  ПОЛУЧИТЬ СПИСОК ФИЛЬТРОВ 
+exports.getFilterOptions = async () => {
+    if (filterCache) {
+        return filterCache;
+    }
+
+    try {
+        const { data: brands, error: brandsError } = await supabase
+            .from('brands')
+            .select('id_brand, name')
+            .order('name', { ascending: true });
+
+        const { data: ram, error: ramError } = await supabase
+            .from('product_ram')
+            .select('id_ram, size_gb')
+            .order('size_gb', { ascending: true });
+
+        const { data: storage, error: storageError } = await supabase
+            .from('product_storage')
+            .select('id_storage, size_gb')
+            .order('size_gb', { ascending: true });
+
+        const { data: colors, error: colorsError } = await supabase
+            .from('colors')
+            .select('id_color, name')
+            .order('name', { ascending: true });
+
+        filterCache = {
+            brands: brands || [],
+            ram: ram || [],
+            storage: storage || [],
+            colors: colors || []
+        };
+
+        return filterCache;
+
+    } catch (error) {
+        console.error('Ошибка получения опций фильтров:', error);
+        return { brands: [], ram: [], storage: [], colors: [] };
+    }
+};
+
+//  ОЧИСТКА ВСЕХ КЭШЕЙ 
 exports.clearCache = () => {
     productsCache = null;
     cacheTimestamp = null;
     variantCache = {};
-    reviewsCache = {}; // ← Очистка кэша отзывов
+    reviewsCache = {};
+    filterCache = null;
     console.log('[CACHE] All caches cleared');
 };
 
-// ================= ВАРИАНТЫ ТОВАРА =================
+//  ВАРИАНТЫ ТОВАРА 
 exports.getVariantsByProductId = async (productId) => {
     const { data, error } = await supabase
         .from('products_variants')
         .select(`
-      id_variant,
-      price,
-      old_price,
-      image_url,
-      badge_type,
-      colors(name),
-      product_ram(size_gb),
-      product_storage(size_gb)
-    `)
+            id_variant,
+            price,
+            old_price,
+            image_url,
+            badge_type,
+            colors(name),
+            product_ram(size_gb),
+            product_storage(size_gb)
+        `)
         .eq('id_product', productId);
 
     if (error) {
@@ -308,14 +455,9 @@ exports.getVariantsByProductId = async (productId) => {
     return data || [];
 };
 
-/**
- * Получить N самых дорогих товаров
- */
+//  ТОП ТОВАРОВ 
 exports.getMostExpensive = async (limit = 3) => {
-    // Сначала получаем все товары (можно оптимизировать запрос)
     const allProducts = await exports.getAll();
-    
-    // Сортируем по цене и берём топ
     return allProducts
         .sort((a, b) => b.price - a.price)
         .slice(0, limit);
