@@ -9,13 +9,16 @@ app.use(express.json());
 
 app.get('/', (req, res) => res.json({ status: 'ok', message: 'Server is running' }));
 
-//  АВТОРИЗАЦИЯ 
+// === АВТОРИЗАЦИЯ ===
 app.use('/api/auth', require('./routes/auth'));
 
-//  ТОВАРЫ 
+// === ТОВАРЫ ===
 app.use('/api/products', require('./routes/products'));
 
-//  ОТЗЫВЫ О МАГАЗИНЕ 
+// === ЗАКАЗЫ ===
+app.use('/api/orders', require('./routes/orders'));
+
+// === ОТЗЫВЫ О МАГАЗИНЕ ===
 app.use('/api/shop-reviews', require('./routes/shopReviews'));
 
 app.listen(PORT, () => {
