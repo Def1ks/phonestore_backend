@@ -40,7 +40,7 @@ exports.getFilteredProducts = async ({
             )
         `, { count: 'exact' });
 
-    // === ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ВАЛИДАЦИИ ===
+    //  ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ВАЛИДАЦИИ 
     const parseIds = (value) => {
         if (!value) return [];
         const arr = Array.isArray(value) ? value : [value];
@@ -52,7 +52,7 @@ exports.getFilteredProducts = async ({
             .filter(id => id !== null);
     };
 
-    // === ФИЛЬТРЫ С ПРОВЕРКОЙ НА NaN ===
+    //  ФИЛЬТРЫ С ПРОВЕРКОЙ НА NaN 
     
     // Бренд
     const brandIds = parseIds(brand);
@@ -461,4 +461,112 @@ exports.getMostExpensive = async (limit = 3) => {
     return allProducts
         .sort((a, b) => b.price - a.price)
         .slice(0, limit);
+};
+
+exports.canReviewProduct = async (userId, productId) => {
+    console.log('[DEBUG] canReviewProduct - userId:', userId, 'productId:', productId);
+
+    const {  data: orders, error: orderError } = await supabase
+        .from('orders')
+        .select('id_order')
+        .eq('id_user', userId)
+        .eq('status', 'delivered');
+
+    if (orderError) {
+        console.error('[DEBUG] Error fetching orders:', orderError);
+        throw orderError;
+    }
+
+    console.log('[DEBUG] Orders:', orders);
+
+    if (!orders || orders.length === 0) {
+        return { allowed: false, reason: 'Отзыв доступен только после получения заказа' };
+    }
+
+    const orderIds = orders.map(o => o.id_order);
+    const {  data: items, error: itemsError } = await supabase
+        .from('order_items')
+        .select('id_variant')
+        .in('id_order', orderIds);
+
+    if (itemsError) {
+        console.error('[DEBUG] Error fetching order_items:', itemsError);
+        throw itemsError;
+    }
+
+    console.log('[DEBUG] Order items:', items);
+
+    if (!items || items.length === 0) {
+        return { allowed: false, reason: 'Отзыв доступен только после получения заказа' };
+    }
+
+    const variantIds = items.map(item => item.id_variant);
+
+    const {  data: variants, error: variantsError } = await supabase
+        .from('products_variants')
+        .select('id_product')
+        .in('id_variant', variantIds)
+        .eq('id_product', productId);
+
+    if (variantsError) {
+        console.error('[DEBUG] Error fetching variants:', variantsError);
+        throw variantsError;
+    }
+
+    console.log('[DEBUG] Variants:', variants);
+
+    const hasPurchased = variants && variants.length > 0;
+
+    if (!hasPurchased) {
+        return { allowed: false, reason: 'Отзыв доступен только после получения заказа' };
+    }
+
+    const {  data: existing, error: reviewError } = await supabase
+        .from('reviews')
+        .select('id_review')
+        .eq('id_product', productId)
+        .eq('id_user', userId)
+        .single();
+
+    if (reviewError && reviewError.code !== 'PGRST116') {
+        console.error('[DEBUG] Error checking existing review:', reviewError);
+        throw reviewError;
+    }
+    
+    if (existing) {
+        return { allowed: false, reason: 'Вы уже оставляли отзыв на этот товар' };
+    }
+
+    console.log('[DEBUG] User can review product!');
+    return { allowed: true };
+};
+exports.createProductReview = async (userId, productId, rating, comment) => {
+    if (!rating || rating < 1 || rating > 5) throw new Error('Рейтинг должен быть от 1 до 5');
+    if (!comment || comment.trim().length < 10) throw new Error('Отзыв должен содержать минимум 10 символов');
+
+    const {  data: existing } = await supabase
+        .from('reviews')
+        .select('id_review')
+        .eq('id_product', productId)
+        .eq('id_user', userId)
+        .single();
+
+    if (existing) throw new Error('Вы уже оставляли отзыв на этот товар');
+
+    const { data, error } = await supabase
+        .from('reviews')
+        .insert({
+            id_product: productId,
+            id_user: userId,
+            rating,
+            comment: comment.trim(),
+            created_at: new Date().toISOString()
+        });
+
+    if (error) throw error;
+
+    delete reviewsCache[productId];
+    console.log(`[CACHE] Reviews cache cleared for product ${productId}`);
+
+    return { message: 'Отзыв успешно опубликован' };
 };

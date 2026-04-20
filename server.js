@@ -15,13 +15,13 @@ app.use('/api/auth', require('./routes/auth'));
 //  ТОВАРЫ 
 app.use('/api/products', require('./routes/products'));
 
-// === ЗАКАЗЫ ===
+//  ЗАКАЗЫ 
 app.use('/api/orders', require('./routes/orders'));
 
-// === КОРЗИНА ===
+//  КОРЗИНА 
 app.use('/api/cart', require('./routes/cart')); 
 
-// === ОТЗЫВЫ О МАГАЗИНЕ ===
+//  ОТЗЫВЫ О МАГАЗИНЕ 
 app.use('/api/shop-reviews', require('./routes/shopReviews'));
 
 app.listen(PORT, () => {

@@ -112,3 +112,30 @@ exports.getFilterOptions = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+
+exports.checkProductReviewEligibility = async (req, res) => {
+    try {
+        const productId = req.params.id;
+        const userId = req.user.id;
+
+        const result = await productService.canReviewProduct(userId, productId);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error checking product review eligibility:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+exports.createProductReview = async (req, res) => {
+    try {
+        const productId = req.params.id;
+        const userId = req.user.id;
+        const { rating, comment } = req.body;
+
+        const result = await productService.createProductReview(userId, productId, rating, comment);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('Error creating product review:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+};
