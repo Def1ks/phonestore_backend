@@ -7,9 +7,12 @@ const { protect } = require('../middleware/auth');
 router.post('/register', authController.register);
 router.post('/login', authController.login);
 
-// Защищённые 
+// Для админов 
+router.post('/admin/login', authController.adminLogin);
+
+// Защищённые
 router.get('/me', protect, authController.getMe);
-router.put('/profile', protect, authController.updateProfile); // ← НОВОЕ
-router.put('/password', protect, authController.changePassword); // ← НОВОЕ
+router.put('/profile', protect, authController.updateProfile);
+router.put('/password', protect, authController.changePassword);
 
 module.exports = router;

@@ -4,26 +4,33 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE'] }));
+app.use(cors({ 
+  origin: '*', 
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 app.get('/', (req, res) => res.json({ status: 'ok', message: 'Server is running' }));
 
-//  АВТОРИЗАЦИЯ 
+//  АВТОРИЗАЦИЯ
 app.use('/api/auth', require('./routes/auth'));
 
-//  ТОВАРЫ 
+//  ТОВАРЫ
 app.use('/api/products', require('./routes/products'));
 
-//  ЗАКАЗЫ 
+//  ЗАКАЗЫ
 app.use('/api/orders', require('./routes/orders'));
 
-//  КОРЗИНА 
-app.use('/api/cart', require('./routes/cart')); 
+//  КОРЗИНА
+app.use('/api/cart', require('./routes/cart'));
 
-//  ОТЗЫВЫ О МАГАЗИНЕ 
+//  ОТЗЫВЫ О МАГАЗИНЕ
 app.use('/api/shop-reviews', require('./routes/shopReviews'));
 
+//  АДМИНКА
+app.use('/api/admin', require('./routes/admin'));
+
 app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });

@@ -132,7 +132,6 @@ exports.login = async (req, res) => {
 //  ПОЛУЧИТЬ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ 
 exports.getMe = async (req, res) => {
     try {
-        // req.user добавлен middleware protect
         const { data: user, error } = await supabase
             .from('users')
             .select('id_user, email, first_name, last_name, role, created_at')
@@ -221,5 +220,60 @@ exports.changePassword = async (req, res) => {
     } catch (error) {
         console.error('Change password error:', error);
         res.status(500).json({ error: 'Ошибка смены пароля' });
+    }
+};
+
+// АДМИНСКАЯ АВТОРИЗАЦИЯ 
+exports.adminLogin = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || !password) {
+            return res.status(400).json({ error: 'Email и пароль обязательны' });
+        }
+
+        const { data: admin, error: fetchError } = await supabase
+            .from('users')
+            .select('id_user, email, password, first_name, last_name, role')
+            .eq('email', email)
+            .eq('role', 'admin')
+            .single();
+
+        if (fetchError || !admin) {
+            return res.status(401).json({ error: 'Неверный email или пароль' });
+        }
+
+        // Проверяем пароль
+        const isValidPassword = await bcrypt.compare(password, admin.password);
+
+        if (!isValidPassword) {
+            return res.status(401).json({ error: 'Неверный email или пароль' });
+        }
+
+        // Генерируем JWT токен
+        const token = jwt.sign(
+            { 
+                id: admin.id_user, 
+                email: admin.email,
+                role: admin.role 
+            },
+            JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        res.json({
+            message: 'Вход выполнен успешно',
+            token,
+            user: {
+                id: admin.id_user,
+                email: admin.email,
+                name: `${admin.first_name} ${admin.last_name}`.trim() || admin.email,
+                role: admin.role
+            }
+        });
+
+    } catch (error) {
+        console.error('Admin login error:', error);
+        res.status(500).json({ error: 'Ошибка сервера при входе' });
     }
 };
